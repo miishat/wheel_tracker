@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileUp, FileDown, Info } from 'lucide-react';
+import { FileUp, FileDown, Info, Trash2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { processIBKR } from './csvParser';
@@ -20,7 +20,15 @@ const containerVariants = {
 
 function App() {
   const [fileName, setFileName] = useState<string>(() => {
-    return localStorage.getItem('wheelTracker_fileName') || 'Choose CSV file or click to upload';
+    return localStorage.getItem('wheelTracker_fileName') || 'Choose CSV file(s) or click to upload';
+  });
+  const [rawRows, setRawRows] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('wheelTracker_rawRows');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
   const [tickers, setTickers] = useState<TickerState[]>(() => {
     try {
@@ -48,37 +56,126 @@ function App() {
     localStorage.setItem('wheelTracker_tickers', JSON.stringify(tickers));
   }, [tickers]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  useEffect(() => {
+    localStorage.setItem('wheelTracker_rawRows', JSON.stringify(rawRows));
+  }, [rawRows]);
 
-    setFileName(file.name);
-    setStatusMsg('Parsing CSV...');
+  const handleClearData = () => {
+    if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
+      setRawRows([]);
+      setTickers([]);
+      setFileName('Choose CSV file(s) or click to upload');
+      setStatusMsg('');
+      setStatusColor('var(--text-secondary)');
+      setSelectedTicker(null);
+      localStorage.removeItem('wheelTracker_rawRows');
+      localStorage.removeItem('wheelTracker_tickers');
+      localStorage.removeItem('wheelTracker_fileName');
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setStatusMsg('Parsing CSV(s)...');
     setStatusColor('var(--accent)');
 
-    Papa.parse(file, {
-      skipEmptyLines: true,
-      complete: (results) => {
-        const parsedMap = processIBKR(results.data);
-        const allArray = Object.values(parsedMap)
-          .sort((a, b) => a.ticker.localeCompare(b.ticker));
+    let newRows: any[] = [];
+    let filesProcessed = 0;
 
-        if (allArray.length === 0) {
-          setStatusMsg('No positions found.');
+    Array.from(files).forEach((file) => {
+      Papa.parse(file, {
+        skipEmptyLines: true,
+        complete: (results) => {
+          newRows = [...newRows, ...results.data];
+          filesProcessed++;
+
+          if (filesProcessed === files.length) {
+            processAggregatedData(newRows, files.length);
+          }
+        },
+        error: () => {
+          setStatusMsg('Error parsing one or more CSVs.');
           setStatusColor('var(--danger)');
-          setTickers([]);
-          return;
         }
+      });
+    });
+  };
 
-        setStatusMsg('Loaded successfully!');
-        setStatusColor('var(--success)');
-        setTickers(allArray);
-      },
-      error: () => {
-        setStatusMsg('Error parsing CSV.');
-        setStatusColor('var(--danger)');
+  const processAggregatedData = (newRows: any[], numNewFiles: number) => {
+    // 1. Combine new rows with existing raw rows
+    const combinedRows = [...rawRows, ...newRows];
+
+    // 2. Deduplicate rows based on a unique hash of the trade metrics 
+    // Format: date_ticker_type_quantity_price_proceeds
+    const uniqueRowsMap = new Map<string, any>(); 
+    
+    combinedRows.forEach(row => {
+      if (!row || row.length < 12) return;
+      
+      // We only care about Trades or Open Positions rows
+      const isTrade = row[0] === 'Trades' && row[1] === 'Data' && row[2] === 'Order';
+      const isOpenPos = row[0] === 'Open Positions' && row[1] === 'Data' && row[2] === 'Summary';
+      
+      if (!isTrade && !isOpenPos) {
+        return; 
+      }
+
+      const isOptions = row[3] === 'Equity and Index Options';
+      const isStock = row[3] === 'Stocks';
+      
+      if (isTrade && (isOptions || isStock)) {
+        // Create a deterministic hash for deduplication of Trades
+        const hash = `${row[0]}_${row[3]}_${row[5]}_${row[6]}_${row[7]}_${row[8]}_${row[10]}`;
+        uniqueRowsMap.set(hash, row);
+      } else if (isOpenPos && (isOptions || isStock)) {
+        // For open positions, we intentionally do nothing here with uniqueRowsMap
+        // We will just filter the newest ones below
       }
     });
+
+    // To properly handle Open Positions moving from Open -> Closed between files:
+    // 1. Find all Trades to accurately build history (done via uniqueRowsMap)
+    // 2. ONLY use the 'Open Positions' from the VERY LAST file uploaded.
+    // If multiple files are uploaded at once, `newRows` contains them in some order. 
+    // The safest way is to filter `newRows` for open positions and use ONLY those for the current state,
+    // discarding any open positions parsed from previous files (`rawRows`).
+
+    const latestOpenPosRows = newRows.filter(row => 
+      row && row.length >= 12 && 
+      row[0] === 'Open Positions' && row[1] === 'Data' && row[2] === 'Summary' &&
+      (row[3] === 'Equity and Index Options' || row[3] === 'Stocks')
+    );
+
+    const dedupedTradeRows = Array.from(uniqueRowsMap.values());
+    
+    // Combine deduplicated trades with ONLY the latest open positions
+    const dedupedRows = [...dedupedTradeRows, ...latestOpenPosRows];
+    
+    setRawRows(dedupedRows);
+
+    // 3. Process the fully deduplicated dataset
+    const parsedMap = processIBKR(dedupedRows);
+    const allArray = Object.values(parsedMap)
+      .sort((a, b) => a.ticker.localeCompare(b.ticker));
+
+    if (allArray.length === 0) {
+      setStatusMsg('No positions found in the combined data.');
+      setStatusColor('var(--danger)');
+      setTickers([]);
+      return;
+    }
+
+    // 4. Update UI
+    const totalFilesObj = fileName.match(/\d+/) ? parseInt(fileName.match(/\d+/)![0]) : (rawRows.length > 0 ? 1 : 0);
+    const totalFiles = totalFilesObj + numNewFiles;
+    const newFileName = totalFiles > 1 ? `Aggregated ${totalFiles} Files` : 'Aggregated Data';
+    
+    setFileName(newFileName);
+    setStatusMsg('Aggregated successfully!');
+    setStatusColor('var(--success)');
+    setTickers(allArray);
   };
 
   const handleExportPDF = async () => {
@@ -156,7 +253,7 @@ function App() {
             <label htmlFor="csvFileInput" className="file-drop-area">
               <FileUp size={32} color="var(--accent)" style={{ marginBottom: '10px' }} />
               <span className="file-msg">{fileName}</span>
-              <input type="file" id="csvFileInput" accept=".csv" onChange={handleFileUpload} onClick={(e) => { e.currentTarget.value = ''; }} />
+              <input type="file" id="csvFileInput" accept=".csv" multiple onChange={handleFileUpload} onClick={(e) => { e.currentTarget.value = ''; }} />
             </label>
             <div className="status-msg" style={{ color: statusColor }}>{statusMsg}</div>
           </section>
@@ -182,9 +279,16 @@ function App() {
                 <FileDown size={16} /> {isExporting ? 'Exporting...' : 'Export PDF'}
               </button>
               <label htmlFor="csvFileInputCompact" className="btn-upload">
-                 <FileUp size={16} /> Upload Another CSV
-                 <input type="file" id="csvFileInputCompact" accept=".csv" onChange={handleFileUpload} onClick={(e) => { e.currentTarget.value = ''; }} />
+                 <FileUp size={16} /> Add More CSVs
+                 <input type="file" id="csvFileInputCompact" accept=".csv" multiple onChange={handleFileUpload} onClick={(e) => { e.currentTarget.value = ''; }} />
               </label>
+              <button 
+                className="btn-upload" 
+                onClick={handleClearData} 
+                style={{ background: 'rgba(255, 51, 102, 0.1)', borderColor: 'var(--danger)', color: 'var(--danger)' }}
+              >
+                <Trash2 size={16} /> Clear
+              </button>
             </div>
           </div>
         )}
