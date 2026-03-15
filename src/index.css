@@ -188,6 +188,64 @@ input[type="file"] {
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
+/* Filters and Sorting Row */
+.filters-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
+    background: var(--card-bg);
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.search-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    max-width: 400px;
+}
+
+.search-bar input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-family: var(--font-family);
+    outline: none;
+}
+
+.search-bar input::placeholder {
+    color: var(--text-secondary);
+}
+
+.sort-dropdown {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sort-dropdown select {
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-family: var(--font-family);
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.sort-dropdown select:focus {
+    border-color: var(--accent);
+}
+
 /* Dashboard Grid */
 .dashboard-header {
     display: flex;

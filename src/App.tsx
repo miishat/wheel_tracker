@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileUp, FileDown, Info, Trash2 } from 'lucide-react';
+import { FileUp, FileDown, Info, Trash2, Search, ArrowUpDown } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { processIBKR } from './csvParser';
 import type { TickerState } from './types';
 import { TickerCard } from './components/TickerCard';
 import { DetailedLedger } from './components/DetailedLedger';
+import { calculateNetPL } from './Calculations';
 
 // Animation variants
 const containerVariants = {
@@ -47,6 +48,8 @@ function App() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [viewMode, setViewMode] = useState<'active' | 'closed'>('active');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortMode, setSortMode] = useState<'alpha' | 'plHighToLow' | 'plLowToHigh'>('alpha');
 
   useEffect(() => {
     localStorage.setItem('wheelTracker_fileName', fileName);
@@ -239,6 +242,35 @@ function App() {
   const optionsOnlyWheels = tickers.filter(t => t.opSharesHeld === 0 && t.hasOpenPosition);
   const closedWheels = tickers.filter(t => t.opSharesHeld === 0 && !t.hasOpenPosition);
 
+  // Sorting and Filtering Logic
+  const getProcessedArray = (arr: TickerState[]) => {
+    // 1. Filter
+    let processed = arr;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      processed = processed.filter(t => t.ticker.toLowerCase().includes(q));
+    }
+
+    // 2. Sort
+    return processed.sort((a, b) => {
+      if (sortMode === 'alpha') {
+        return a.ticker.localeCompare(b.ticker);
+      }
+      
+      const plA = calculateNetPL(a, a.currentPrice);
+      const plB = calculateNetPL(b, b.currentPrice);
+
+      if (sortMode === 'plHighToLow') return plB - plA;
+      if (sortMode === 'plLowToHigh') return plA - plB;
+      
+      return 0;
+    });
+  };
+
+  const processedActiveStocks = getProcessedArray(activeStockWheels);
+  const processedOptionsOnly = getProcessedArray(optionsOnlyWheels);
+  const processedClosed = getProcessedArray(closedWheels);
+
   return (
     <>
       <div className="app-background"></div>
@@ -302,6 +334,29 @@ function App() {
               transition={{ duration: 0.5 }}
               style={{ paddingBottom: '20px' }}
             >
+              <div className="filters-row">
+                <div className="search-bar">
+                  <Search size={18} color="var(--text-secondary)" />
+                  <input 
+                    type="text" 
+                    placeholder="Search tickers..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <div className="sort-dropdown">
+                  <ArrowUpDown size={18} color="var(--text-secondary)" />
+                  <select 
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.target.value as any)}
+                  >
+                    <option value="alpha">Alphabetical (A-Z)</option>
+                    <option value="plHighToLow">Highest Net P/L</option>
+                    <option value="plLowToHigh">Lowest Net P/L</option>
+                  </select>
+                </div>
+              </div>
+
               <div className="view-toggle">
                 <button 
                   className={`toggle-btn ${viewMode === 'active' ? 'active' : ''}`} 
@@ -320,7 +375,7 @@ function App() {
               <div id="dashboard">
                 {viewMode === 'active' ? (
                   <>
-                    {activeStockWheels.length > 0 && (
+                    {processedActiveStocks.length > 0 && (
                       <>
                         <div className="dashboard-header">
                           <h2>Active Stock Wheels</h2>
@@ -332,14 +387,14 @@ function App() {
                           animate="show"
                           style={{ marginBottom: '4rem' }}
                         >
-                          {activeStockWheels.map(t => (
+                          {processedActiveStocks.map(t => (
                             <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
                           ))}
                         </motion.div>
                       </>
                     )}
 
-                    {optionsOnlyWheels.length > 0 && (
+                    {processedOptionsOnly.length > 0 && (
                       <>
                         <div className="dashboard-header">
                           <h2>Cash-Secured Puts (Options Only) <Info size={16} style={{marginLeft: '8px', opacity: 0.5}}/></h2>
@@ -350,15 +405,15 @@ function App() {
                           initial="hidden" 
                           animate="show"
                         >
-                          {optionsOnlyWheels.map(t => (
+                          {processedOptionsOnly.map(t => (
                             <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
                           ))}
                         </motion.div>
                       </>
                     )}
 
-                    {activeStockWheels.length === 0 && optionsOnlyWheels.length === 0 && (
-                      <div className="status-msg" style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No active positions right now.</div>
+                    {processedActiveStocks.length === 0 && processedOptionsOnly.length === 0 && (
+                      <div className="status-msg" style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No matching active positions found.</div>
                     )}
                   </>
                 ) : (
@@ -366,19 +421,19 @@ function App() {
                     <div className="dashboard-header">
                       <h2>Closed Wheels (History) <Info size={16} style={{marginLeft: '8px', opacity: 0.5}}/></h2>
                     </div>
-                    {closedWheels.length > 0 ? (
+                    {processedClosed.length > 0 ? (
                       <motion.div 
                         className="ticker-grid" 
                         variants={containerVariants} 
                         initial="hidden" 
                         animate="show"
                       >
-                        {closedWheels.map(t => (
+                        {processedClosed.map(t => (
                           <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
                         ))}
                       </motion.div>
                     ) : (
-                      <div className="status-msg" style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No closed positions found.</div>
+                      <div className="status-msg" style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No matching closed positions found.</div>
                     )}
                   </>
                 )}
