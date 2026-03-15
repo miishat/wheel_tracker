@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileUp, Info } from 'lucide-react';
@@ -17,11 +17,32 @@ const containerVariants = {
 };
 
 function App() {
-  const [fileName, setFileName] = useState<string>('Choose CSV file or click to upload');
-  const [statusMsg, setStatusMsg] = useState<string>('');
-  const [statusColor, setStatusColor] = useState<string>('var(--text-secondary)');
-  const [tickers, setTickers] = useState<TickerState[]>([]);
+  const [fileName, setFileName] = useState<string>(() => {
+    return localStorage.getItem('wheelTracker_fileName') || 'Choose CSV file or click to upload';
+  });
+  const [tickers, setTickers] = useState<TickerState[]>(() => {
+    try {
+      const saved = localStorage.getItem('wheelTracker_tickers');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [statusMsg, setStatusMsg] = useState<string>(
+    tickers.length > 0 ? 'Restored from local storage' : ''
+  );
+  const [statusColor, setStatusColor] = useState<string>(
+    tickers.length > 0 ? 'var(--success)' : 'var(--text-secondary)'
+  );
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('wheelTracker_fileName', fileName);
+  }, [fileName]);
+
+  useEffect(() => {
+    localStorage.setItem('wheelTracker_tickers', JSON.stringify(tickers));
+  }, [tickers]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
