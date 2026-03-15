@@ -38,6 +38,7 @@ function App() {
   );
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [viewMode, setViewMode] = useState<'active' | 'closed'>('active');
 
   useEffect(() => {
     localStorage.setItem('wheelTracker_fileName', fileName);
@@ -59,12 +60,11 @@ function App() {
       skipEmptyLines: true,
       complete: (results) => {
         const parsedMap = processIBKR(results.data);
-        const activeArray = Object.values(parsedMap)
-          .filter(t => t.opSharesHeld > 0 || t.hasOpenPosition)
+        const allArray = Object.values(parsedMap)
           .sort((a, b) => a.ticker.localeCompare(b.ticker));
 
-        if (activeArray.length === 0) {
-          setStatusMsg('No actively held/wheeled positions found.');
+        if (allArray.length === 0) {
+          setStatusMsg('No positions found.');
           setStatusColor('var(--danger)');
           setTickers([]);
           return;
@@ -72,7 +72,7 @@ function App() {
 
         setStatusMsg('Loaded successfully!');
         setStatusColor('var(--success)');
-        setTickers(activeArray);
+        setTickers(allArray);
       },
       error: () => {
         setStatusMsg('Error parsing CSV.');
@@ -139,7 +139,8 @@ function App() {
   };
 
   const activeStockWheels = tickers.filter(t => t.opSharesHeld > 0);
-  const optionsOnlyWheels = tickers.filter(t => t.opSharesHeld === 0);
+  const optionsOnlyWheels = tickers.filter(t => t.opSharesHeld === 0 && t.hasOpenPosition);
+  const closedWheels = tickers.filter(t => t.opSharesHeld === 0 && !t.hasOpenPosition);
 
   return (
     <>
@@ -197,43 +198,86 @@ function App() {
               transition={{ duration: 0.5 }}
               style={{ paddingBottom: '20px' }}
             >
-              <div id="dashboard">
-              {activeStockWheels.length > 0 && (
-                <>
-                  <div className="dashboard-header">
-                    <h2>Active Stock Wheels</h2>
-                  </div>
-                  <motion.div 
-                    className="ticker-grid" 
-                    variants={containerVariants} 
-                    initial="hidden" 
-                    animate="show"
-                    style={{ marginBottom: '4rem' }}
-                  >
-                    {activeStockWheels.map(t => (
-                      <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
-                    ))}
-                  </motion.div>
-                </>
-              )}
+              <div className="view-toggle">
+                <button 
+                  className={`toggle-btn ${viewMode === 'active' ? 'active' : ''}`} 
+                  onClick={() => setViewMode('active')}
+                >
+                  Active Wheels
+                </button>
+                <button 
+                  className={`toggle-btn ${viewMode === 'closed' ? 'active' : ''}`} 
+                  onClick={() => setViewMode('closed')}
+                >
+                  History (Closed)
+                </button>
+              </div>
 
-              {optionsOnlyWheels.length > 0 && (
-                <>
-                  <div className="dashboard-header">
-                    <h2>Cash-Secured Puts (Options Only) <Info size={16} style={{marginLeft: '8px', opacity: 0.5}}/></h2>
-                  </div>
-                  <motion.div 
-                    className="ticker-grid"
-                    variants={containerVariants} 
-                    initial="hidden" 
-                    animate="show"
-                  >
-                    {optionsOnlyWheels.map(t => (
-                      <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
-                    ))}
-                  </motion.div>
-                </>
-              )}
+              <div id="dashboard">
+                {viewMode === 'active' ? (
+                  <>
+                    {activeStockWheels.length > 0 && (
+                      <>
+                        <div className="dashboard-header">
+                          <h2>Active Stock Wheels</h2>
+                        </div>
+                        <motion.div 
+                          className="ticker-grid" 
+                          variants={containerVariants} 
+                          initial="hidden" 
+                          animate="show"
+                          style={{ marginBottom: '4rem' }}
+                        >
+                          {activeStockWheels.map(t => (
+                            <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
+                          ))}
+                        </motion.div>
+                      </>
+                    )}
+
+                    {optionsOnlyWheels.length > 0 && (
+                      <>
+                        <div className="dashboard-header">
+                          <h2>Cash-Secured Puts (Options Only) <Info size={16} style={{marginLeft: '8px', opacity: 0.5}}/></h2>
+                        </div>
+                        <motion.div 
+                          className="ticker-grid"
+                          variants={containerVariants} 
+                          initial="hidden" 
+                          animate="show"
+                        >
+                          {optionsOnlyWheels.map(t => (
+                            <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
+                          ))}
+                        </motion.div>
+                      </>
+                    )}
+
+                    {activeStockWheels.length === 0 && optionsOnlyWheels.length === 0 && (
+                      <div className="status-msg" style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No active positions right now.</div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="dashboard-header">
+                      <h2>Closed Wheels (History) <Info size={16} style={{marginLeft: '8px', opacity: 0.5}}/></h2>
+                    </div>
+                    {closedWheels.length > 0 ? (
+                      <motion.div 
+                        className="ticker-grid" 
+                        variants={containerVariants} 
+                        initial="hidden" 
+                        animate="show"
+                      >
+                        {closedWheels.map(t => (
+                          <TickerCard key={t.ticker} data={t} onViewDetails={setSelectedTicker} />
+                        ))}
+                      </motion.div>
+                    ) : (
+                      <div className="status-msg" style={{color: 'var(--text-secondary)', textAlign: 'center'}}>No closed positions found.</div>
+                    )}
+                  </>
+                )}
               </div>
             </motion.main>
           )}
