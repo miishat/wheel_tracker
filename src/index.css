@@ -287,6 +287,36 @@ input[type="file"] {
     border-color: rgba(255,255,255,0.3);
 }
 
+.card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 1.25rem;
+}
+
+.card-actions .btn-details {
+    margin-top: 0;
+    flex: 1;
+}
+
+.btn-icon {
+    padding: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon:hover {
+    background: rgba(255,255,255,0.05);
+    color: #fff;
+    border-color: rgba(255,255,255,0.3);
+}
+
 /* Modal Styles */
 .modal {
     display: flex;

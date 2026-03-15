@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileUp, Info } from 'lucide-react';
+import { FileUp, FileDown, Info } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { processIBKR } from './csvParser';
 import type { TickerState } from './types';
 import { TickerCard } from './components/TickerCard';
@@ -35,6 +37,7 @@ function App() {
     tickers.length > 0 ? 'var(--success)' : 'var(--text-secondary)'
   );
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('wheelTracker_fileName', fileName);
@@ -78,6 +81,63 @@ function App() {
     });
   };
 
+  const handleExportPDF = async () => {
+    const dashboardElement = document.getElementById('dashboard-wrapper');
+    if (!dashboardElement) return;
+
+    setIsExporting(true);
+    setStatusMsg('Generating PDF...');
+    setStatusColor('var(--accent)');
+
+    try {
+      // Small pause to allow UI update
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const canvas = await html2canvas(dashboardElement, {
+        backgroundColor: '#0a0a0a', // Use background color from css
+        scale: 2, 
+        useCORS: true,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      let pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      let position = 10;
+      let imgHeightLeft = pdfHeight;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
+      imgHeightLeft -= (pageHeight - 10);
+
+      // Handle multi-page if needed
+      while (imgHeightLeft >= 0) {
+        position = imgHeightLeft - pdfHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
+        imgHeightLeft -= pageHeight;
+      }
+
+      pdf.save(`Wheel-Tracker-Dashboard-${new Date().toISOString().split('T')[0]}.pdf`);
+
+      setStatusMsg('PDF Exported Successfully!');
+      setStatusColor('var(--success)');
+    } catch (err) {
+      console.error(err);
+      setStatusMsg('Error exporting PDF.');
+      setStatusColor('var(--danger)');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const activeStockWheels = tickers.filter(t => t.opSharesHeld > 0);
   const optionsOnlyWheels = tickers.filter(t => t.opSharesHeld === 0);
 
@@ -106,21 +166,38 @@ function App() {
               <span>•</span>
               <span>{fileName}</span>
             </div>
-            <label htmlFor="csvFileInputCompact" className="btn-upload">
-               <FileUp size={16} /> Upload Another CSV
-               <input type="file" id="csvFileInputCompact" accept=".csv" onChange={handleFileUpload} onClick={(e) => { e.currentTarget.value = ''; }} />
-            </label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className="btn-upload" 
+                onClick={handleExportPDF} 
+                disabled={isExporting}
+                style={{ 
+                  background: isExporting ? 'rgba(255,255,255,0.1)' : 'rgba(0, 255, 102, 0.1)', 
+                  borderColor: isExporting ? 'var(--text-secondary)' : 'var(--success)', 
+                  color: isExporting ? 'var(--text-secondary)' : 'var(--success)',
+                  opacity: isExporting ? 0.7 : 1
+                }}
+              >
+                <FileDown size={16} /> {isExporting ? 'Exporting...' : 'Export PDF'}
+              </button>
+              <label htmlFor="csvFileInputCompact" className="btn-upload">
+                 <FileUp size={16} /> Upload Another CSV
+                 <input type="file" id="csvFileInputCompact" accept=".csv" onChange={handleFileUpload} onClick={(e) => { e.currentTarget.value = ''; }} />
+              </label>
+            </div>
           </div>
         )}
 
         <AnimatePresence>
           {tickers.length > 0 && (
             <motion.main 
-              id="dashboard"
+              id="dashboard-wrapper"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
+              style={{ paddingBottom: '20px' }}
             >
+              <div id="dashboard">
               {activeStockWheels.length > 0 && (
                 <>
                   <div className="dashboard-header">
@@ -157,6 +234,7 @@ function App() {
                   </motion.div>
                 </>
               )}
+              </div>
             </motion.main>
           )}
         </AnimatePresence>
